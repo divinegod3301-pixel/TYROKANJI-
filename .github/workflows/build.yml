@@ -16,7 +16,7 @@ jobs:
       - name: Extract project ZIP
         run: |
           mkdir extracted
-          unzip -q KanjiWidget_GitHub_Project_FIXED.zip -d extracted
+          unzip -q KanjiWidget_GitHub_Project_FIXED2.zip -d extracted
 
       - name: Find project directory
         run: |
