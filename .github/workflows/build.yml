@@ -17,7 +17,7 @@ jobs:
       - name: Extract FIXED3 project
         run: |
           mkdir -p extracted
-          unzip -q KanjiWidget_GitHub_Project_FIXED3.zip -d extracted
+          unzip -q KanjiWidget_GitHub_Project_FIXED4.zip -d extracted
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
