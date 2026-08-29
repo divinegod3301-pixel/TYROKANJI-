@@ -21,64 +21,123 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
+      - name: Set up Android
         uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
-          sdkmanager "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
 
-      - name: Locate Gradle project
-        id: project
+      - name: Find project or ZIP
+        id: locate
+        shell: bash
         run: |
-          if [ -f "settings.gradle.kts" ] || [ -f "settings.gradle" ]; then
-            echo "dir=." >> "$GITHUB_OUTPUT"
+          set -e
+
+          echo "Checking repository..."
+
+          # Case 1: Gradle project is already extracted
+          if [ -f "settings.gradle.kts" ]; then
+            echo "project=." >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          PROJECT_DIR=$(find . -type f \
-            \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
-            -print -quit | xargs -r dirname)
+          if [ -f "settings.gradle" ]; then
+            echo "project=." >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Gradle project not found."
+          # Case 2: Find the uploaded ZIP
+          ZIP_FILE=$(find . -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No Gradle project or ZIP file found."
+            echo ""
+            echo "Repository contents:"
+            find . -maxdepth 3 -type f | sort
             exit 1
           fi
 
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Gradle project found at: $PROJECT_DIR"
+          echo "Found ZIP:"
+          echo "$ZIP_FILE"
 
-      - name: Make Gradle wrapper executable
-        working-directory: ${{ steps.project.outputs.dir }}
-        run: chmod +x gradlew
+          mkdir -p "$GITHUB_WORKSPACE/extracted"
 
-      - name: Build Debug APK
-        working-directory: ${{ steps.project.outputs.dir }}
-        run: ./gradlew :app:assembleDebug --stacktrace
+          unzip -o "$ZIP_FILE" -d "$GITHUB_WORKSPACE/extracted"
 
-      - name: Locate APK
-        id: apk
-        working-directory: ${{ steps.project.outputs.dir }}
+          echo ""
+          echo "Searching extracted ZIP for Gradle project..."
+
+          PROJECT=$(find "$GITHUB_WORKSPACE/extracted" \
+            -type f \
+            \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
+            -print -quit)
+
+          if [ -z "$PROJECT" ]; then
+            echo "ERROR: ZIP does not contain a Gradle project."
+            echo ""
+            echo "Extracted files:"
+            find "$GITHUB_WORKSPACE/extracted" -maxdepth 5 -type f | sort
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$PROJECT")
+
+          echo "Gradle project:"
+          echo "$PROJECT_DIR"
+
+          echo "project=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Show project
+        run: |
+          echo "Using project:"
+          echo "${{ steps.locate.outputs.project }}"
+
+          echo ""
+          echo "Project files:"
+          find "${{ steps.locate.outputs.project }}" -maxdepth 2 -type f | sort
+
+      - name: Make Gradle executable
+        working-directory: ${{ steps.locate.outputs.project }}
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
+
+      - name: Build TYRO KANJI
+        working-directory: ${{ steps.locate.outputs.project }}
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew :app:assembleDebug --stacktrace
+          else
+            echo "ERROR: gradlew is missing."
+            exit 1
+          fi
+
+      - name: Find APK
+        id: find_apk
+        working-directory: ${{ steps.locate.outputs.project }}
         run: |
           APK=$(find app/build/outputs/apk/debug \
-            -type f -name "*.apk" -print -quit)
+            -type f \
+            -name "*.apk" \
+            -print -quit)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK was not generated."
             exit 1
           fi
 
+          echo "APK found:"
+          echo "$APK"
+
           echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "APK: $APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: TYRO-KANJI-DEBUG-APK
-          path: ${{ steps.project.outputs.dir }}/${{ steps.apk.outputs.path }}
+          path: ${{ steps.locate.outputs.project }}/${{ steps.find_apk.outputs.path }}
           if-no-files-found: error
